@@ -81,6 +81,7 @@ func doBuild(c *cli.Context) error {
 	run := []string{}
 	user := ""
 	userDirs := []string{}
+	base := ""
 
 	for _, pkgName := range args.Slice() {
 		pkg, err := build.Import(pkgName, wd, 0)
@@ -100,6 +101,11 @@ func doBuild(c *cli.Context) error {
 					if strings.HasPrefix(c.Text, "//docker:") {
 						parts := strings.SplitN(c.Text[9:], " ", 2)
 						switch parts[0] {
+						case "base":
+							if base != "" {
+								return fmt.Errorf("%s: docker:base specified more than once", fset.Position(c.Pos()))
+							}
+							base = parts[1]
 						case "env":
 							env = append(env, strings.Fields(parts[1])...)
 						case "expose":
@@ -126,8 +132,14 @@ func doBuild(c *cli.Context) error {
 		}
 	}
 
+	if base == "" {
+		base = c.String("base")
+	} else if c.IsSet("base") && base != c.String("base") {
+		return errors.New("base specified in both cli args and //docker:base")
+	}
+
 	var dockerfile bytes.Buffer
-	fmt.Fprintf(&dockerfile, "  FROM %s\n", c.String("base"))
+	fmt.Fprintf(&dockerfile, "  FROM %s\n", base)
 
 	for _, pkg := range install {
 		if strings.HasSuffix(pkg, "@edge") {
