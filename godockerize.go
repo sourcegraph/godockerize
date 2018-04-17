@@ -55,7 +55,10 @@ func main() {
 			},
 		},
 	}
-	app.Run(os.Args)
+	if err := app.Run(os.Args); err != nil {
+		fmt.Printf("error: %s\n", err)
+		os.Exit(1)
+	}
 }
 
 func doBuild(c *cli.Context) error {
