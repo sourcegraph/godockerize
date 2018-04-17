@@ -114,11 +114,11 @@ func doBuild(c *cli.Context) error {
 						case "run":
 							run = append(run, parts[1])
 						case "user":
-							if user != "" {
-								return errors.New("user set twice")
-							}
 							userArgs := strings.Fields(parts[1])
 							if i == 0 {
+								if user != "" {
+									return errors.New("user set twice")
+								}
 								user = userArgs[0]
 								if len(userArgs) > 1 {
 									userDirs = userArgs[1:]
