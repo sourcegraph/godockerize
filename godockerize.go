@@ -46,6 +46,10 @@ func main() {
 						Name:  "env",
 						Usage: "additional environment variables for the Dockerfile",
 					},
+					&cli.StringSliceFlag{
+						Name:  "go-build-flags",
+						Usage: "additional flags to pass to go build",
+					},
 					&cli.BoolFlag{
 						Name:  "dry-run",
 						Usage: "only print generated Dockerfile",
@@ -185,7 +189,9 @@ func doBuild(c *cli.Context) error {
 
 	for _, importPath := range packages {
 		fmt.Printf("godockerize: Building Go binary %s...\n", path.Base(importPath))
-		cmd := exec.Command("go", "build", "-buildmode", "exe", "-tags", "dist", "-o", path.Base(importPath), importPath)
+		args := append([]string{"build"}, c.StringSlice("go-build-flags")...)
+		args = append(args, "-buildmode", "exe", "-tags", "dist", "-o", path.Base(importPath), importPath)
+		cmd := exec.Command("go", args...)
 		cmd.Dir = tmpdir
 		cmd.Env = []string{
 			"GOARCH=amd64",
@@ -211,11 +217,7 @@ func doBuild(c *cli.Context) error {
 	cmd.Dir = tmpdir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-
-	return nil
+	return cmd.Run()
 }
 
 func sortedStringSet(in []string) []string {
