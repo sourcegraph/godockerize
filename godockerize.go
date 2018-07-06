@@ -147,7 +147,13 @@ func doBuild(c *cli.Context) error {
 	if len(install) != 0 {
 		fmt.Fprintf(&dockerfile, "  RUN apk add --no-cache %s\n", strings.Join(sortedStringSet(install), " "))
 	}
-
+	if user != "" {
+		runCmds := []string{fmt.Sprintf("addgroup -S %s && adduser -S -G %s -h /home/%s %s", user, user, user, user)}
+		for _, userDir := range userDirs {
+			runCmds = append(runCmds, fmt.Sprintf("mkdir -p %s && chown -R %s:%s %s", userDir, user, user, userDir))
+		}
+		fmt.Fprintf(&dockerfile, "  RUN "+strings.Join(runCmds, " && ")+"\n")
+	}
 	for _, cmd := range run {
 		fmt.Fprintf(&dockerfile, "  RUN %s\n", cmd)
 	}
@@ -158,11 +164,6 @@ func doBuild(c *cli.Context) error {
 		fmt.Fprintf(&dockerfile, "  EXPOSE %s\n", strings.Join(sortedStringSet(expose), " "))
 	}
 	if user != "" {
-		runCmds := []string{fmt.Sprintf("addgroup -S %s && adduser -S -G %s -h /home/%s %s", user, user, user, user)}
-		for _, userDir := range userDirs {
-			runCmds = append(runCmds, fmt.Sprintf("mkdir -p %s && chown -R %s:%s %s", userDir, user, user, userDir))
-		}
-		fmt.Fprintf(&dockerfile, "  RUN "+strings.Join(runCmds, " && ")+"\n")
 		fmt.Fprintf(&dockerfile, "  USER %s\n", user)
 	}
 	fmt.Fprintf(&dockerfile, "  ENTRYPOINT [\"/sbin/tini\", \"--\", \"/usr/local/bin/%s\"]\n", path.Base(packages[0]))
