@@ -188,8 +188,7 @@ func doBuild(c *cli.Context) error {
 
 	for _, importPath := range packages {
 		fmt.Printf("godockerize: Building Go binary %s...\n", path.Base(importPath))
-		flags := c.StringSlice("go-build-flags")
-		args := append([]string{"build"}, flags...)
+		args := append([]string{"build"}, c.StringSlice("go-build-flags")...)
 		args = append(args, "-buildmode", "exe", "-tags", "dist", "-o", path.Base(importPath), importPath)
 		cmd := exec.Command("go", args...)
 		cmd.Dir = tmpdir
