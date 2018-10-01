@@ -76,6 +76,8 @@ func doBuild(c *cli.Context) error {
 		return err
 	}
 
+	go111module, useModules := os.LookupEnv("GO111MODULE")
+
 	args := c.Args()
 	if args.Len() < 1 {
 		return errors.New(`"godockerize build" requires 1 or more arguments`)
@@ -201,15 +203,23 @@ func doBuild(c *cli.Context) error {
 	for _, importPath := range packages {
 		fmt.Printf("godockerize: Building Go binary %s...\n", path.Base(importPath))
 		args := append([]string{"build"}, c.StringSlice("go-build-flags")...)
-		args = append(args, "-buildmode", "exe", "-tags", "dist", "-o", path.Base(importPath), importPath)
+		args = append(args, "-buildmode", "exe", "-tags", "dist", "-o", filepath.Join(tmpdir, path.Base(importPath)), importPath)
 		cmd := exec.Command("go", args...)
-		cmd.Dir = tmpdir
+		cmd.Dir = wd
 		cmd.Env = []string{
 			"GOARCH=amd64",
 			"GOOS=linux",
 			"GOROOT=" + build.Default.GOROOT,
 			"GOPATH=" + build.Default.GOPATH,
 			"CGO_ENABLED=0",
+		}
+		if useModules {
+			cmd.Env = append(cmd.Env, "GO111MODULE="+go111module)
+			gocache, err := exec.Command("go", "env", "GOCACHE").Output()
+			if err != nil {
+				return fmt.Errorf("could not run `go env GOCACHE`: %s", err)
+			}
+			cmd.Env = append(cmd.Env, "GOCACHE="+strings.TrimSpace(string(gocache)))
 		}
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
