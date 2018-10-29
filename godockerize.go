@@ -161,6 +161,14 @@ func doBuild(c *cli.Context) error {
     echo -e "http://dl-cdn.alpinelinux.org/alpine/%s/community\n" >> /etc/apk/repositories
 `, repos[i], repos[i])
 	}
+	if strings.HasPrefix(c.String("base"), "alpine") {
+		// IMPORTANT: Alpine by default does not come with some packages that
+		// are needed for working DNS to other containers on a user-defined
+		// Docker network. Without installing this package, nslookup and Go etc
+		// will fail to contact other Docker containers.
+		// See https://github.com/sourcegraph/deploy-sourcegraph-docker/issues/1
+		install = append(install, "bind-tools")
+	}
 	if len(install) != 0 {
 		fmt.Fprintf(&dockerfile, "  RUN apk add --no-cache %s\n", strings.Join(sortedStringSet(install), " "))
 	}
