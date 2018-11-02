@@ -89,11 +89,14 @@ func doBuild(c *cli.Context) error {
 	}
 	defer os.RemoveAll(tmpdir)
 
-	fset := token.NewFileSet()
-	var packages, expose, repos, run, userDirs []string
-	env := c.StringSlice("env")
-	install := []string{"ca-certificates", "mailcap", "tini"} // mailcap is for /etc/mime.types
-	user := ""
+	var (
+		packages, expose, repos, run, userDirs []string
+		user, cmd                              string
+
+		fset    = token.NewFileSet()
+		env     = c.StringSlice("env")
+		install = []string{"ca-certificates", "mailcap", "tini"} // mailcap is for /etc/mime.types
+	)
 
 	for i, pkgName := range args.Slice() {
 		pkg, err := build.Import(pkgName, wd, 0)
@@ -123,6 +126,15 @@ func doBuild(c *cli.Context) error {
 							repos = append(repos, strings.Fields(parts[1])...)
 						case "run":
 							run = append(run, parts[1])
+						case "cmd":
+							if i == 0 {
+								if cmd != "" {
+									return errors.New("cmd set twice")
+								}
+								cmd = parts[1]
+							} else {
+								fmt.Printf("%s: ignoring cmd directive since %s is not the first package\n", fset.Position(c.Pos()), pkgName)
+							}
 						case "user":
 							userArgs := strings.Fields(parts[1])
 							if i == 0 {
@@ -191,6 +203,9 @@ func doBuild(c *cli.Context) error {
 	if user != "" {
 		fmt.Fprintf(&dockerfile, "  USER %s\n", user)
 	}
+	if cmd != "" {
+		fmt.Fprintf(&dockerfile, "  CMD %s\n", cmd)
+	}
 	fmt.Fprintf(&dockerfile, "  ENTRYPOINT [\"/sbin/tini\", \"--\", \"/usr/local/bin/%s\"]\n", path.Base(packages[0]))
 	for _, importPath := range packages {
 		fmt.Fprintf(&dockerfile, "  ADD %s /usr/local/bin/\n", path.Base(importPath))
@@ -242,11 +257,11 @@ func doBuild(c *cli.Context) error {
 		dockerArgs = append(dockerArgs, "-t", tag)
 	}
 	dockerArgs = append(dockerArgs, ".")
-	cmd := exec.Command("docker", dockerArgs...)
-	cmd.Dir = tmpdir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	docker := exec.Command("docker", dockerArgs...)
+	docker.Dir = tmpdir
+	docker.Stdout = os.Stdout
+	docker.Stderr = os.Stderr
+	return docker.Run()
 }
 
 func sortedStringSet(in []string) []string {
