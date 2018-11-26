@@ -117,7 +117,11 @@ func doBuild(c *cli.Context) error {
 						parts := strings.SplitN(c.Text[len("//docker:"):], " ", 2)
 						switch parts[0] {
 						case "env":
-							env = append(env, strings.Fields(parts[1])...)
+							if i == 0 {
+								env = append(env, strings.Fields(parts[1])...)
+							} else {
+								fmt.Printf("%s: ignoring env directive since %s is not the first package\n", fset.Position(c.Pos()), pkgName)
+							}
 						case "expose":
 							expose = append(expose, strings.Fields(parts[1])...)
 						case "install":
