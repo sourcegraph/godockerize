@@ -105,6 +105,7 @@ func doBuild(c *cli.Context) error {
 		}
 		packages = append(packages, pkg.ImportPath)
 
+		isFirstPackage := i == 0
 		for _, name := range pkg.GoFiles {
 			f, err := parser.ParseFile(fset, filepath.Join(pkg.Dir, name), nil, parser.ParseComments)
 			if err != nil {
@@ -117,9 +118,17 @@ func doBuild(c *cli.Context) error {
 						parts := strings.SplitN(c.Text[len("//docker:"):], " ", 2)
 						switch parts[0] {
 						case "env":
-							env = append(env, strings.Fields(parts[1])...)
+							if isFirstPackage {
+								env = append(env, strings.Fields(parts[1])...)
+							} else {
+								fmt.Printf("%s: ignoring env directive since %s is not the first package\n", fset.Position(c.Pos()), pkgName)
+							}
 						case "expose":
-							expose = append(expose, strings.Fields(parts[1])...)
+							if isFirstPackage {
+								expose = append(expose, strings.Fields(parts[1])...)
+							} else {
+								fmt.Printf("%s: ignoring expose directive since %s is not the first package\n", fset.Position(c.Pos()), pkgName)
+							}
 						case "install":
 							install = append(install, strings.Fields(parts[1])...)
 						case "repository":
@@ -127,7 +136,7 @@ func doBuild(c *cli.Context) error {
 						case "run":
 							run = append(run, parts[1])
 						case "cmd":
-							if i == 0 {
+							if isFirstPackage {
 								if cmd != "" {
 									return errors.New("cmd set twice")
 								}
@@ -137,7 +146,7 @@ func doBuild(c *cli.Context) error {
 							}
 						case "user":
 							userArgs := strings.Fields(parts[1])
-							if i == 0 {
+							if isFirstPackage {
 								if user != "" {
 									return errors.New("user set twice")
 								}
