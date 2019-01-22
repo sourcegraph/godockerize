@@ -11,13 +11,12 @@ import (
 	"go/token"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"gopkg.in/urfave/cli.v2"
+	"github.com/urfave/cli"
 )
 
 // Alpine doesn't do point releases, but if you are reading this, 3.8 downloads
@@ -76,8 +75,6 @@ func doBuild(c *cli.Context) error {
 		return err
 	}
 
-	go111module, useModules := os.LookupEnv("GO111MODULE")
-
 	args := c.Args()
 	if args.Len() < 1 {
 		return errors.New(`"godockerize build" requires 1 or more arguments`)
@@ -98,12 +95,17 @@ func doBuild(c *cli.Context) error {
 		install = []string{"ca-certificates", "mailcap", "tini"} // mailcap is for /etc/mime.types
 	)
 
+	targetDir := ""
 	for i, pkgName := range args.Slice() {
 		pkg, err := build.Import(pkgName, wd, 0)
 		if err != nil {
 			return err
 		}
 		packages = append(packages, pkg.ImportPath)
+
+		if i == 0 {
+			targetDir = pkg.Dir
+		}
 
 		isFirstPackage := i == 0
 		for _, name := range pkg.GoFiles {
@@ -167,20 +169,29 @@ func doBuild(c *cli.Context) error {
 	}
 
 	var dockerfile bytes.Buffer
-	fmt.Fprintf(&dockerfile, "  FROM %s\n", c.String("base"))
+	dockerfile.WriteString(`# This Dockerfile was generate from github.com/sourcegraph/godockerize. It was
+# not written by a human, and as such looks janky. As you change this file,
+# please don't be scared to make it more pleasant / remove hadolint ingores.
 
+`)
+	fmt.Fprintf(&dockerfile, "FROM %s\n", c.String("base"))
+
+	repoUrls := []string{}
 	for _, pkg := range install {
 		if strings.HasSuffix(pkg, "@edge") {
-			fmt.Fprintf(&dockerfile, `  RUN echo -e "@edge http://dl-cdn.alpinelinux.org/alpine/edge/main\n" >> /etc/apk/repositories && \
-    echo -e "@edge http://dl-cdn.alpinelinux.org/alpine/edge/community\n" >> /etc/apk/repositories
-`)
+			repoUrls = append(repoUrls,
+				`echo "@edge http://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories`,
+				`echo "@edge http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories`)
 			break
 		}
 	}
-	for i := range repos {
-		fmt.Fprintf(&dockerfile, `  RUN echo -e "http://dl-cdn.alpinelinux.org/alpine/%s/main\n" >> /etc/apk/repositories && \
-    echo -e "http://dl-cdn.alpinelinux.org/alpine/%s/community\n" >> /etc/apk/repositories
-`, repos[i], repos[i])
+	for _, r := range repos {
+		repoUrls = append(repoUrls,
+			fmt.Sprintf(`echo "http://dl-cdn.alpinelinux.org/alpine/%s/main" >> /etc/apk/repositories`, r),
+			fmt.Sprintf(`echo "http://dl-cdn.alpinelinux.org/alpine/%s/community" >> /etc/apk/repositories`, r))
+	}
+	if len(repoUrls) > 0 {
+		fmt.Fprintf(&dockerfile, "RUN %s\n", strings.Join(repoUrls, " && \\\n    "))
 	}
 	if strings.HasPrefix(c.String("base"), "alpine") {
 		// IMPORTANT: Alpine by default does not come with some packages that
@@ -191,86 +202,76 @@ func doBuild(c *cli.Context) error {
 		install = append(install, "bind-tools")
 	}
 	if len(install) != 0 {
-		fmt.Fprintf(&dockerfile, "  RUN apk add --no-cache %s\n", strings.Join(sortedStringSet(install), " "))
+		dockerfile.WriteString("# hadolint ignore=DL3018\n")
+		fmt.Fprintf(&dockerfile, "RUN apk add --no-cache %s\n", strings.Join(sortedStringSet(install), " "))
 	}
 	if user != "" {
 		runCmds := []string{fmt.Sprintf("addgroup -S %s && adduser -S -G %s -h /home/%s %s", user, user, user, user)}
 		for _, userDir := range userDirs {
 			runCmds = append(runCmds, fmt.Sprintf("mkdir -p %s && chown -R %s:%s %s", userDir, user, user, userDir))
 		}
-		fmt.Fprintf(&dockerfile, "  RUN "+strings.Join(runCmds, " && ")+"\n")
+		fmt.Fprintf(&dockerfile, "RUN "+strings.Join(runCmds, " && ")+"\n")
 	}
 	for _, cmd := range run {
-		fmt.Fprintf(&dockerfile, "  RUN %s\n", cmd)
+		fmt.Fprintf(&dockerfile, "RUN %s\n", cmd)
 	}
 	if len(env) != 0 {
-		fmt.Fprintf(&dockerfile, "  ENV %s\n", strings.Join(sortedStringSet(env), " "))
+		fmt.Fprintf(&dockerfile, "ENV %s\n", strings.Join(sortedStringSet(env), " "))
 	}
 	if len(expose) != 0 {
-		fmt.Fprintf(&dockerfile, "  EXPOSE %s\n", strings.Join(sortedStringSet(expose), " "))
+		fmt.Fprintf(&dockerfile, "EXPOSE %s\n", strings.Join(sortedStringSet(expose), " "))
 	}
 	if user != "" {
-		fmt.Fprintf(&dockerfile, "  USER %s\n", user)
+		fmt.Fprintf(&dockerfile, "USER %s\n", user)
 	}
 	if cmd != "" {
-		fmt.Fprintf(&dockerfile, "  CMD %s\n", cmd)
+		fmt.Fprintf(&dockerfile, "CMD %s\n", cmd)
 	}
-	fmt.Fprintf(&dockerfile, "  ENTRYPOINT [\"/sbin/tini\", \"--\", \"/usr/local/bin/%s\"]\n", path.Base(packages[0]))
+	fmt.Fprintf(&dockerfile, "ENTRYPOINT [\"/sbin/tini\", \"--\", \"/usr/local/bin/%s\"]\n", path.Base(packages[0]))
 	for _, importPath := range packages {
-		fmt.Fprintf(&dockerfile, "  ADD %s /usr/local/bin/\n", path.Base(importPath))
+		fmt.Fprintf(&dockerfile, "COPY %s /usr/local/bin/\n", path.Base(importPath))
 	}
-
-	fmt.Println("godockerize: Generated Dockerfile:")
 	fmt.Print(dockerfile.String())
-
-	if c.Bool("dry-run") {
-		return nil
-	}
-
-	ioutil.WriteFile(filepath.Join(tmpdir, "Dockerfile"), dockerfile.Bytes(), 0777)
-	if err != nil {
+	fmt.Println()
+	if err := ioutil.WriteFile(filepath.Join(targetDir, "Dockerfile"), dockerfile.Bytes(), 0644); err != nil {
 		return err
 	}
 
-	for _, importPath := range packages {
-		fmt.Printf("godockerize: Building Go binary %s...\n", path.Base(importPath))
-		args := append([]string{"build"}, c.StringSlice("go-build-flags")...)
-		args = append(args, "-buildmode", "exe", "-tags", "dist", "-o", filepath.Join(tmpdir, path.Base(importPath)), importPath)
-		cmd := exec.Command("go", args...)
-		cmd.Dir = wd
-		cmd.Env = []string{
-			"GOARCH=amd64",
-			"GOOS=linux",
-			"GOROOT=" + build.Default.GOROOT,
-			"GOPATH=" + build.Default.GOPATH,
-			"CGO_ENABLED=0",
-		}
-		if useModules {
-			cmd.Env = append(cmd.Env, "GO111MODULE="+go111module)
-			gocache, err := exec.Command("go", "env", "GOCACHE").Output()
-			if err != nil {
-				return fmt.Errorf("could not run `go env GOCACHE`: %s", err)
-			}
-			cmd.Env = append(cmd.Env, "GOCACHE="+strings.TrimSpace(string(gocache)))
-		}
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return err
-		}
+	relPackage := strings.TrimPrefix(packages[0], "github.com/sourcegraph/sourcegraph/")
+
+	var buildsh bytes.Buffer
+	fmt.Fprintf(&buildsh, `#!/usr/bin/env bash
+
+# We want to build multiple go binaries, so we use a custom build step on CI.
+cd $(dirname "${BASH_SOURCE[0]}")%s
+set -ex
+
+OUTPUT=%s
+cleanup() {
+    rm -rf "$OUTPUT"
+}
+trap cleanup EXIT
+
+# Environment for building linux binaries
+export GO111MODULE=on
+export GOARCH=amd64
+export GOOS=linux
+export CGO_ENABLED=0
+
+for pkg in %s; do
+    go build -ldflags "-X github.com/sourcegraph/sourcegraph/pkg/version.version=$VERSION" -buildmode exe -tags dist -o $OUTPUT/$(basename $pkg) $pkg
+done
+
+docker build -f %s/Dockerfile -t $IMAGE $OUTPUT
+`, strings.Repeat("/..", len(strings.Split(relPackage, "/"))), "`mktemp -d -t sgdockerbuild_XXXXXXX`", strings.Join(packages, " \\\n    "), relPackage)
+
+	fmt.Print(buildsh.String())
+	fmt.Println()
+	if err := ioutil.WriteFile(filepath.Join(targetDir, "build.sh"), buildsh.Bytes(), 0755); err != nil {
+		return err
 	}
 
-	fmt.Println("godockerize: Building Docker image...")
-	dockerArgs := []string{"build"}
-	if tag := c.String("tag"); tag != "" {
-		dockerArgs = append(dockerArgs, "-t", tag)
-	}
-	dockerArgs = append(dockerArgs, ".")
-	docker := exec.Command("docker", dockerArgs...)
-	docker.Dir = tmpdir
-	docker.Stdout = os.Stdout
-	docker.Stderr = os.Stderr
-	return docker.Run()
+	return nil
 }
 
 func sortedStringSet(in []string) []string {
