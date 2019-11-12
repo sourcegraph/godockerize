@@ -2,4 +2,7 @@ module github.com/sourcegraph/godockerize
 
 go 1.12
 
-require gopkg.in/urfave/cli.v2 v2.0.0-20180128182452-d3ae77c26ac8
+require (
+	github.com/cpuguy83/go-md2man/v2 v2.0.0 // indirect
+	github.com/urfave/cli v1.22.2-0.20191024042601-850de854cda0
+)

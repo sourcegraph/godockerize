@@ -17,7 +17,7 @@ import (
 	"sort"
 	"strings"
 
-	"gopkg.in/urfave/cli.v2"
+	"github.com/urfave/cli"
 )
 
 // Alpine doesn't do point releases, but if you are reading this, 3.8 downloads
@@ -30,7 +30,7 @@ func main() {
 		Name:    "godockerize",
 		Usage:   "build Docker images from Go packages",
 		Version: "0.0.2",
-		Commands: []*cli.Command{
+		Commands: []cli.Command{
 			{
 				Name:        "build",
 				Usage:       "build a Docker image from Go packages",
@@ -38,9 +38,8 @@ func main() {
 				Description: "Build compiles and installs the packages by the import paths to /usr/local/bin\n   in the docker image. The first package is used as the entrypoint.",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
-						Name:    "tag",
-						Aliases: []string{"t"},
-						Usage:   "output Docker image name and optionally a tag in the 'name:tag' format",
+						Name:  "tag",
+						Usage: "output Docker image name and optionally a tag in the 'name:tag' format",
 					},
 					&cli.StringFlag{
 						Name:  "base",
@@ -79,7 +78,7 @@ func doBuild(c *cli.Context) error {
 	go111module, useModules := os.LookupEnv("GO111MODULE")
 
 	args := c.Args()
-	if args.Len() < 1 {
+	if len(args) < 1 {
 		return errors.New(`"godockerize build" requires 1 or more arguments`)
 	}
 
@@ -98,7 +97,7 @@ func doBuild(c *cli.Context) error {
 		install = []string{"ca-certificates", "mailcap", "tini"} // mailcap is for /etc/mime.types
 	)
 
-	for i, pkgName := range args.Slice() {
+	for i, pkgName := range args {
 		pkg, err := build.Import(pkgName, wd, 0)
 		if err != nil {
 			return err
