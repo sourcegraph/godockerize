@@ -241,6 +241,7 @@ func doBuild(c *cli.Context) error {
 		cmd := exec.Command("go", args...)
 		cmd.Dir = wd
 		cmd.Env = []string{
+			"PATH=" + os.Getenv("PATH"),
 			"GOARCH=amd64",
 			"GOOS=linux",
 			"GOROOT=" + build.Default.GOROOT,
