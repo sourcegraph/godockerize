@@ -75,11 +75,14 @@ func doBuild(c *cli.Context) error {
 		return err
 	}
 
-	go111module, useModules := os.LookupEnv("GO111MODULE")
-
 	args := c.Args()
 	if len(args) < 1 {
 		return errors.New(`"godockerize build" requires 1 or more arguments`)
+	}
+
+	gocache, err := exec.Command("go", "env", "GOCACHE").Output()
+	if err != nil {
+		return fmt.Errorf("could not run `go env GOCACHE`: %s", err)
 	}
 
 	tmpdir, err := ioutil.TempDir("", "godockerize")
@@ -242,15 +245,8 @@ func doBuild(c *cli.Context) error {
 			"GOOS=linux",
 			"GOROOT=" + build.Default.GOROOT,
 			"GOPATH=" + build.Default.GOPATH,
+			"GOCACHE=" + strings.TrimSpace(string(gocache)),
 			"CGO_ENABLED=0",
-		}
-		if useModules {
-			cmd.Env = append(cmd.Env, "GO111MODULE="+go111module)
-			gocache, err := exec.Command("go", "env", "GOCACHE").Output()
-			if err != nil {
-				return fmt.Errorf("could not run `go env GOCACHE`: %s", err)
-			}
-			cmd.Env = append(cmd.Env, "GOCACHE="+strings.TrimSpace(string(gocache)))
 		}
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
